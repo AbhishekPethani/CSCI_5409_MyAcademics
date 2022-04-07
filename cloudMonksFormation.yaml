@@ -1,0 +1,562 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Cloudmonks Cloudformation
+
+#Metadata:
+
+Parameters:
+  CloudMonksVPC:
+    Default: 10.0.0.0/16
+    Description: Cloudmonks default CloudMonksVPC
+    Type: String
+
+  CloudMonksPublic1Subnet:
+    Default: 10.0.0.0/24
+    Description: Cloudmonks Public Subnet 1 CloudMonksVPC
+    Type: String
+
+  CloudMonksPublic2Subnet:
+    Default: 10.0.1.0/24
+    Description: Cloudmonks Public Subnet 2 CloudMonksVPC
+    Type: String
+
+  CloudMonksPrivate1Subnet:
+    Default: 10.0.2.0/24
+    Description: Cloudmonks Private Subnet 1 CloudMonksVPC
+    Type: String
+
+  CloudMonksPrivate2Subnet:
+    Default: 10.0.3.0/24
+    Description: Cloudmonks Private Subnet 2 CloudMonksVPC
+    Type: String
+
+  CloudMonksSSH:
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    Default: 0.0.0.0/0
+    MaxLength: '18'
+    MinLength: '9'
+    Type: String
+
+  InstanceType:
+    Description: Cloudmonks EC2 instance
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+
+  KeyName:
+    Description: Existing EC2 KeyPair (.PEM file)
+    Type: 'AWS::EC2::KeyPair::KeyName'
+
+  CloudMonksRDSInstance:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Default: mysqldb20
+    MaxLength: 60
+    MinLength: 1
+    Type: String
+
+  CloudMonksUserData:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Default: MyAcademics
+    MaxLength: 64
+    MinLength: 1
+    Type: String
+
+  DatabaseUserName:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Default: admin
+    MaxLength: 16
+    MinLength: 1
+    NoEcho: true
+    Type: String
+
+  DatabasePassword:
+    AllowedPattern: '[a-zA-Z0-9]*'
+    Default: Cloudmonks123
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+
+  DatabaseBackupRentention:
+    Default: 0
+    MaxValue: 35
+    MinValue: 0
+    Type: Number
+
+  DatabaseStorage:
+    Default: 20
+    MaxValue: 1024
+    MinValue: 5
+    Type: Number
+
+  DatabaseInstanceClass:
+    AllowedValues:
+      - db.t1.micro
+      - db.t2.micro
+      - db.m1.small
+      - db.m1.medium
+      - db.m1.large
+    Default: db.t2.micro
+    Type: String
+
+  MultiAZDatabase:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Type: String
+
+  LabInstanceProfile:
+    Type: String
+    Description: Lab student role 
+    Default: LabInstanceProfile
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref CloudMonksVPC
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags: 
+        - Key: Name
+          Value: CloudMonkVPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: Cloudmonks InternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref CloudMonksPublic1Subnet
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: PublicSubnet1
+      VpcId: !Ref VPC
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref CloudMonksPublic2Subnet
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: PublicSubnet2
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: Public Route
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties: 
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnetRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref CloudMonksPrivate1Subnet
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - Key: Name
+          Value: Private Subnet 1
+      VpcId: !Ref VPC
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref CloudMonksPrivate2Subnet
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - Key: Name
+          Value: Private Subnet 2
+      VpcId: !Ref VPC
+
+  LoadBalancingSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Load Balacing Security Group
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: Load Balacing Security Group
+      VpcId: !Ref VPC
+
+  SSHSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: EC2 SSH Security Group
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref CloudMonksSSH
+      Tags: 
+        - Key: Name
+          Value: SSH security group
+      VpcId: !Ref VPC
+
+  AppSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Application Security Group
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: App security group
+      VpcId: !Ref VPC
+
+  DataBaseSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Database Security Group
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppSecGroup
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: Database security group
+      VpcId: !Ref VPC
+
+  AppLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: AttachInternetGateway
+    Properties:
+      Name: CloudmonksLoadBalancer
+      SecurityGroups:
+        - !Ref LoadBalancingSecGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  LoadBalancerNoSslCertificate:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: 
+        - 
+          Order: 1
+          TargetGroupArn: !Ref LoadBalancerTargetGroup
+          Type: "forward"
+      LoadBalancerArn: !Ref AppLoadBalancer
+      Port: 3000
+      Protocol: HTTP
+
+
+  LoadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: CloudmonksApplicationServer
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet for DB
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: RDS Database Subnets
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: AttachInternetGateway
+    Properties:
+      AllocatedStorage: !Ref DatabaseStorage
+      PubliclyAccessible: true
+      AvailabilityZone: us-east-1a
+      BackupRetentionPeriod: !Ref DatabaseBackupRentention
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      DBInstanceIdentifier: !Ref CloudMonksRDSInstance
+      DBName: !Ref CloudMonksUserData
+      Engine: MySQL
+      EngineVersion: 5.7.31
+      MasterUsername: !Sub '{{resolve:secretsmanager:${CloudMonksSecretManager}::username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${CloudMonksSecretManager}::password}}'
+      MultiAZ: !Ref MultiAZDatabase
+
+  CloudMonksSecretManager:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: project-video2
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: Secret Manager
+
+  SecretRDSInstanceAttachment:
+    Type: 'AWS::SecretsManager::SecretTargetAttachment'
+    Properties:
+      SecretId: !Ref CloudMonksSecretManager
+      TargetId: !Ref DatabaseInstance
+      TargetType: 'AWS::RDS::DBInstance'
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - us-east-1a
+        - us-east-1b
+      MinSize: 2
+      MaxSize: 4
+      LaunchConfigurationName: !Ref CloudMonksAutoScaling
+      Tags:
+        -
+          Key: Name
+          Value: ASG instance
+          PropagateAtLaunch: 'true'
+      VPCZoneIdentifier:
+        -  !Ref PublicSubnet1
+        -  !Ref PublicSubnet2
+      TargetGroupARNs:
+        - !Ref LoadBalancerTargetGroup
+
+  CloudMonksAutoScaling:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties: 
+      ImageId: ami-04505e74c0741db8d
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups: 
+        -  !Ref AppSecGroup
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            git clone https://github.com/kandarpparikh/AutoConfigure.git
+            cd AutoConfigure/Cloud-Computing/FrontEnd
+            sh start.sh
+
+  FallDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Fall_Courses
+      AttributeDefinitions:
+        - AttributeName: "CRN"
+          AttributeType: "N"
+      KeySchema:
+        - AttributeName: "CRN"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  WinterDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Winter_Courses
+      AttributeDefinitions:
+        - AttributeName: "CRN"
+          AttributeType: "N"
+      KeySchema:
+        - AttributeName: "CRN"
+          KeyType: "HASH"
+
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5        
+
+  SummerDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Summer_Courses
+      AttributeDefinitions:
+        - AttributeName: "CRN"
+          AttributeType: "N"
+      KeySchema:
+        - AttributeName: "CRN"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  ReviewsDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Reviews
+      AttributeDefinitions:
+        - AttributeName: "CRN"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "CRN"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+       
+  AutoConfigurationInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB,DatabaseInstance]
+    Properties:
+      ImageId: ami-04505e74c0741db8d
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet1
+      IamInstanceProfile: !Ref LabInstanceProfile
+      SecurityGroupIds:
+        - !Ref AppSecGroup
+      KeyName: !Ref KeyName 
+      Tags:
+        - Key: Name
+          Value: AutoConfigurationInstance
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            sudo apt-get update
+            sudo apt-get install python -y
+            sudo apt install python3-pip -y
+            pip3 install mysql-connector
+            git clone https://github.com/kandarpparikh/AutoConfigure.git
+            cd AutoConfigure
+            pip install -r requirements.txt
+            sh autoconfigure.sh
+
+  ScheduledRuleSummer: 
+    Type: AWS::Events::Rule
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]
+    Properties: 
+      Description: "ScheduledRuleSummer"
+      ScheduleExpression: "rate(5 minutes)"
+      State: "ENABLED"
+      Targets: 
+        -
+          Arn: "arn:aws:lambda:us-east-1:222190592248:function:subject-scrapper"
+          Id: "SummerFunctionSchedule"
+        
+  ScheduledRuleWinter: 
+    Type: AWS::Events::Rule
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]
+    Properties: 
+      Description: "ScheduledRuleWinter"
+      ScheduleExpression: "rate(5 minutes)"
+      State: "ENABLED"
+      Targets:
+        -
+          Arn: "arn:aws:lambda:us-east-1:222190592248:function:Winter_Function"
+          Id: "WinterFunctionSchedule"
+        
+  ScheduledRuleFall: 
+    Type: AWS::Events::Rule
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]
+    Properties: 
+      Description: "ScheduledRuleFall"
+      ScheduleExpression: "rate(5 minutes)"
+      State: "ENABLED"
+      Targets:
+        -
+          Arn: "arn:aws:lambda:us-east-1:222190592248:function:Fall_Function"
+          Id: "FallFunctionSchedule"
+          
+  PermissionForEventsToInvokeLambdaSummer: 
+    Type: AWS::Lambda::Permission
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]
+    Properties: 
+      FunctionName: arn:aws:lambda:us-east-1:222190592248:function:subject-scrapper
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRuleSummer"
+          - "Arn"
+          
+  PermissionForEventsToInvokeLambdaWinter: 
+    Type: AWS::Lambda::Permission
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]
+    Properties: 
+      FunctionName: arn:aws:lambda:us-east-1:222190592248:function:Winter_Function
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRuleWinter"
+          - "Arn"
+
+  PermissionForEventsToInvokeLambdaFall:
+    DependsOn: [FallDynamoDB,WinterDynamoDB,SummerDynamoDB,ReviewsDynamoDB]  
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: arn:aws:lambda:us-east-1:222190592248:function:Fall_Function
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRuleFall"
+          - "Arn"
+#Outputs:
